@@ -5,6 +5,11 @@ edition = "2021"
 description = "Sandboxed Claude Code on Apple container"
 license = "MIT"
 repository = "https://github.com/shareefhadid/csb"
+readme = "README.md"
+keywords = ["claude", "sandbox", "container", "agent", "macos"]
+categories = ["command-line-utilities", "development-tools"]
+# Ship only what the crate needs to build and document itself.
+exclude = ["PLAN.md", ".github/"]
 
 [[bin]]
 name = "csb"
