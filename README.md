@@ -31,6 +31,11 @@ writes appear owned by you on the host.
   can *read* out to the internet. Blast radius = your project files + `~/.claude` (which holds
   your Claude OAuth token). Domain allowlisting helps only marginally, because content-accepting
   trusted domains (GitHub, etc.) are themselves exfil channels.
+- **Writes to `~/.claude` that your host executes later.** The config dir is mounted
+  read-write, and your *host* Claude reads hooks, settings, and plugins from it. An agent
+  inside the sandbox can write a hook there that runs on your Mac the next time you launch
+  Claude outside the container. Treat `~/.claude` as inside the blast radius, not as a wall —
+  review `settings.json` / hooks if a session did anything you didn't expect.
 - **Secrets inside the project.** `.env.local` and friends live in the mounted project dir, so
   they're fully readable and usable by the agent. Use scoped/test API keys in dev, and prefer
   running your real dev server on the host (the agent rarely needs to *run* the project — and
@@ -53,38 +58,60 @@ them down*, not by sandboxing. You assume the residual risk.
 ## Install
 
 ```sh
-git clone https://github.com/shareefhadid/csb.git
-cd csb
-./install.sh
+cargo install --git https://github.com/shareefhadid/csb
 ```
 
-`install.sh` builds the sandbox image (`claude-box`) and adds `source .../csb.sh` to your
-`~/.zshrc` / `~/.bashrc`. Open a new terminal afterward. Prefer to wire it yourself? Just
-`source csb.sh` from your rc.
+Or build from a clone:
+
+```sh
+git clone https://github.com/shareefhadid/csb.git
+cd csb && cargo install --path .
+```
+
+The Dockerfile and sandbox guidance are compiled into the binary, so there's nothing else to
+keep around. The first `csb` run builds the `claude-box` image automatically (a few minutes);
+`csb build` does it ahead of time.
+
+### Upgrading from the shell version
+
+The old version was a `csb()` shell function sourced from `csb.sh`. **Remove the
+`source .../csb.sh` line from your `~/.zshrc` / `~/.bashrc`** — a shell function shadows the
+binary, so you'd silently keep running the old one. `csb doctor` warns if it finds that line.
+Your existing image and `~/.claude` carry over; run `csb build --force` once to pick up the
+current sandbox guidance.
 
 ## Usage
 
 ```sh
 cd <your-project>
-csb                 # launch Claude Code, sandboxed, in this project
-csb --continue      # resume the previous conversation (all flags pass through to claude)
-csb-doctor          # from another terminal: health/memory check (see Troubleshooting)
+csb                    # launch Claude Code, sandboxed, in this project
+csb --continue         # all unrecognized flags pass through to claude
+csb -p "explain this"  # non-interactive; safe to pipe in and out
+csb -- doctor          # `--` forces a word through to claude instead of csb
+csb doctor             # from another terminal: health/memory check
+csb build              # build the image if it's missing or out of date
+csb build --force      # rebuild unconditionally — this is how you update Claude Code
 ```
 
 First run does a one-time copy-paste OAuth login (there's no browser/Keychain in the VM); it
 persists via the mounted `~/.claude`, so you won't log in again.
 
+`run`, `doctor`, and `build` are reserved subcommand names; anything else is forwarded to
+`claude` verbatim. `csb run <args>` is the explicit form of the default behavior.
+
 ## Configuration
 
-| Env var      | Default       | Purpose                                                   |
-| ------------ | ------------- | --------------------------------------------------------- |
-| `CSB_MEMORY` | `6g`          | Hard memory cap for the VM (see *OOM* below).             |
-| `CSB_IMAGE`  | `claude-box`  | Image name to build/run.                                  |
+| Env var      | Default      | Purpose                                        |
+| ------------ | ------------ | ---------------------------------------------- |
+| `CSB_MEMORY` | `6g`         | Hard memory cap for the VM (see *OOM* below).  |
+| `CSB_IMAGE`  | `claude-box` | Image name to build/run.                       |
 
-Export before launching, e.g. `export CSB_MEMORY=8g`. **Add tools you always want** (OS
-packages, global npm CLIs, Python, etc.) to the `Dockerfile`, then rebuild:
-`container build -t claude-box . && container builder stop`. Rebuilding is also how you
-update Claude Code's version.
+Export before launching, e.g. `export CSB_MEMORY=8g`.
+
+**Adding tools to the sandbox** (OS packages, global npm CLIs, Python, …): edit
+`assets/Dockerfile` in a clone, reinstall (`cargo install --path .`), and run
+`csb build --force`. csb hashes the baked-in guidance and stamps it on the image, so it tells
+you when a running image is older than your binary.
 
 ## How it works (and the gotchas it solves)
 
@@ -100,7 +127,9 @@ A thin wrapper, but it bakes in fixes for several non-obvious sharp edges:
 - **Operational guidance is baked into the image** at `/etc/claude-code/CLAUDE.md` (a
   managed-policy memory path, outside the mounts, auto-loaded every session). It tells the
   in-container agent how it's running: no `git push`/`pull` (no creds), persist tools via the
-  Dockerfile, and stay memory-aware. Edit `sandbox-guidance.md` and rebuild to change it.
+  Dockerfile, and stay memory-aware.
+- **TTY handling** — stdin is always forwarded, but a pseudo-TTY is only requested when both
+  stdin and stdout are terminals, so `echo x | csb -p ...` and `csb -p ... | grep` both behave.
 - **Memory cap + diagnostics** for the OOM failure mode below.
 
 ## Troubleshooting
@@ -111,7 +140,7 @@ bundlers, or large test suites — can exhaust it and wedge the whole VM, includ
 even `container exec`. From another terminal:
 
 ```sh
-csb-doctor          # container ls + `container stats` (reads from the host, works when exec hangs)
+csb doctor          # container ls + `container stats` (reads from the host, works when exec hangs)
 ```
 
 If MEM is pinned near the cap, it's OOM. Recover the wedged container:
@@ -128,11 +157,21 @@ instead of freezing.
 **`git push`/`pull` fails inside.** By design — no SSH keys/creds are mounted. Let the agent
 commit locally, then sync from a host terminal.
 
-**Can't reach the dev server in my browser.** No container port is published to the host by
-default, and the container's `localhost` is private to the VM. Run your dev server on the host
-instead, or add a publish flag (e.g. `-p 3001:3000`) to the `csb` function.
+**Can't reach the dev server in my browser.** No container port is published to the host, and
+the container's `localhost` is private to the VM. Run your dev server on the host instead.
 
 **Service down after reboot.** `container system start` (or `brew services start container`).
+
+**Builder VM eating RAM after a build.** csb stops it automatically; `container builder stop`
+if something else started it.
+
+## Development
+
+```sh
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+```
 
 ## License
 

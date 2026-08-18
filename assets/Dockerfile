@@ -1,10 +1,6 @@
 # claude-box — sandboxed Claude Code image for Apple `container`.
-#
-# Built by install.sh, or manually:
-#   container build -t claude-box .
-#   container builder stop      # reclaim the builder VM's RAM afterwards
-#
-# This is the place to add anything you ALWAYS want available inside the sandbox.
+# Compiled into the csb binary and written to a temp build context by `csb build`.
+# To customize: edit this file in a clone, `cargo install --path .`, `csb build --force`.
 
 FROM node:22-slim
 
@@ -22,10 +18,11 @@ RUN npm install -g @anthropic-ai/claude-code@latest
 # RUN npm install -g pnpm wrangler typescript
 
 # Operational guidance for the in-container agent. Claude auto-loads
-# /etc/claude-code/CLAUDE.md as managed-policy memory every session (it's outside the
-# mounted dirs, so it's never shadowed). Edit sandbox-guidance.md and rebuild to change it.
+# /etc/claude-code/CLAUDE.md as managed-policy memory every session.
 COPY sandbox-guidance.md /etc/claude-code/CLAUDE.md
 
-# IS_SANDBOX=1 lets Claude run --dangerously-skip-permissions as container-root.
+# Staleness tracking — replaced at build time by csb.
+LABEL csb.assets.sha256="{{CSB_ASSETS_SHA256}}"
+
 ENV IS_SANDBOX=1
 WORKDIR /workspace
