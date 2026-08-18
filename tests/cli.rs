@@ -11,7 +11,10 @@ fn cli_should_print_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("csb 0.1.0"));
+        .stdout(predicate::str::contains(format!(
+            "csb {}",
+            env!("CARGO_PKG_VERSION")
+        )));
 }
 
 #[test]
