@@ -58,14 +58,14 @@ them down*, not by sandboxing. You assume the residual risk.
 ## Install
 
 ```sh
-cargo install --git https://github.com/shareefhadid/csb
+brew install shareefhadid/tap/csb
 ```
 
-Or build from a clone:
+That's a pre-built binary — no Rust toolchain needed. Alternatives:
 
 ```sh
-git clone https://github.com/shareefhadid/csb.git
-cd csb && cargo install --path .
+cargo install --git https://github.com/shareefhadid/csb   # from source
+git clone https://github.com/shareefhadid/csb.git && cd csb && cargo install --path .
 ```
 
 The Dockerfile and sandbox guidance are compiled into the binary, so there's nothing else to

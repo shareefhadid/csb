@@ -10,6 +10,10 @@ permissions:
 jobs:
   release:
     runs-on: macos-latest
+    env:
+      # Optional: a PAT with `contents: write` on shareefhadid/homebrew-tap.
+      # Without it the release still publishes; the formula just isn't bumped.
+      TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,3 +43,53 @@ jobs:
             csb-aarch64-apple-darwin.tar.gz
             checksums.txt
           generate_release_notes: true
+
+      - name: Bump Homebrew formula
+        if: env.TAP_TOKEN != ''
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA=$(shasum -a 256 csb-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/csb-aarch64-apple-darwin.tar.gz"
+
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_TOKEN}@github.com/shareefhadid/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+
+          cat > tap/Formula/csb.rb <<RUBY
+          class Csb < Formula
+            desc "Sandboxed Claude Code on Apple container"
+            homepage "https://github.com/shareefhadid/csb"
+            version "${VERSION}"
+            license "MIT"
+
+            # Apple 'container' is Apple Silicon + macOS 26 only, so is this.
+            url "${URL}"
+            sha256 "${SHA}"
+
+            def install
+              bin.install "csb"
+            end
+
+            def caveats
+              <<~EOS
+                csb requires Apple 'container' (macOS 26 Tahoe or newer):
+                  brew install container
+
+                The first run builds the sandbox image automatically.
+                Override the memory cap: export CSB_MEMORY=8g
+              EOS
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/csb --version")
+            end
+          end
+          RUBY
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/csb.rb
+          git commit -m "csb ${VERSION}"
+          git push
