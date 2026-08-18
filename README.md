@@ -101,17 +101,49 @@ persists via the mounted `~/.claude`, so you won't log in again.
 
 ## Configuration
 
-| Env var      | Default      | Purpose                                        |
-| ------------ | ------------ | ---------------------------------------------- |
-| `CSB_MEMORY` | `6g`         | Hard memory cap for the VM (see *OOM* below).  |
-| `CSB_IMAGE`  | `claude-box` | Image name to build/run.                       |
+| Env var      | Default      | Purpose                                                      |
+| ------------ | ------------ | ------------------------------------------------------------ |
+| `CSB_MEMORY` | `6g`         | Hard memory cap for the VM (see *OOM* below).                |
+| `CSB_IMAGE`  | `claude-box` | Image name to build/run.                                     |
+| `CSB_ENV`    | —            | Extra env vars for the container (see *Extending* below).    |
 
 Export before launching, e.g. `export CSB_MEMORY=8g`.
 
-**Adding tools to the sandbox** (OS packages, global npm CLIs, Python, …): edit
-`assets/Dockerfile` in a clone, reinstall (`cargo install --path .`), and run
-`csb build --force`. csb hashes the baked-in guidance and stamps it on the image, so it tells
-you when a running image is older than your binary.
+Setting `CSB_IMAGE` to an image csb didn't build marks it as yours: csb won't rebuild it,
+won't overwrite it, and won't nag that it's out of date.
+
+## Extending the sandbox
+
+Don't fork csb to add tools. Put a Dockerfile at **`~/.config/csb/Dockerfile`** (or
+`$XDG_CONFIG_HOME/csb/Dockerfile`) and csb builds it as a layer on top of its own image,
+tagged `claude-box-local`, and runs that instead:
+
+```dockerfile
+# ~/.config/csb/Dockerfile — no FROM needed, csb supplies its base image
+RUN npm install -g context-mode
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+ENV CONTEXT_MODE_DIR=/workspace/.context-mode
+```
+
+- **No `FROM` line** — csb prepends `FROM claude-box`. Write your own `FROM` only if you
+  want a different base entirely; csb will respect it.
+- The **build context is your config dir**, so `COPY my-script.sh /usr/local/bin/` works for
+  files sitting next to that Dockerfile.
+- It rebuilds automatically when you edit it, and when a csb upgrade changes the base — the
+  layer is fingerprinted against both. `csb doctor` shows its status.
+- Upgrading csb never touches it: your tools live in your config, not in a fork.
+
+**Passing env vars in:** `CSB_ENV` takes a comma-separated list. `NAME=value` is passed
+literally; a bare `NAME` forwards that variable's value from your host (and is skipped if
+unset):
+
+```sh
+export CSB_ENV="CONTEXT_MODE_DIR=/workspace/.context-mode,GH_TOKEN"
+```
+
+csb fingerprints its own Dockerfile and guidance onto every image it builds, so it tells you
+when a running image is older than your binary.
 
 ## How it works (and the gotchas it solves)
 
@@ -124,6 +156,8 @@ A thin wrapper, but it bakes in fixes for several non-obvious sharp edges:
   resolve verbatim, and MCP config / login / plugins all persist across runs.
 - **`IS_SANDBOX=1`** lets Claude run `--dangerously-skip-permissions` as the container's root
   (it otherwise refuses). Container-root maps to your host UID, so written files are yours.
+- **Debian 13 base (glibc 2.41)** — new enough to run the prebuilt Linux binaries most
+  tools ship; older bases reject anything linked against glibc 2.39+.
 - **Operational guidance is baked into the image** at `/etc/claude-code/CLAUDE.md` (a
   managed-policy memory path, outside the mounts, auto-loaded every session). It tells the
   in-container agent how it's running: no `git push`/`pull` (no creds), persist tools via the
