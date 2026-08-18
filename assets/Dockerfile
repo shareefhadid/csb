@@ -1,8 +1,12 @@
 # claude-box — sandboxed Claude Code image for Apple `container`.
 # Compiled into the csb binary and written to a temp build context by `csb build`.
-# To customize: edit this file in a clone, `cargo install --path .`, `csb build --force`.
+#
+# Don't fork this to add your own tools — put them in ~/.config/csb/Dockerfile and
+# csb builds them as a layer on top of this image. See the README.
 
-FROM node:22-slim
+# Debian 13 (glibc 2.41). Bookworm's 2.36 is too old for a growing share of
+# prebuilt Linux binaries users install into the sandbox.
+FROM node:22-trixie-slim
 
 # Base tooling. Add OS packages you always need here (e.g. python3, build-essential).
 # procps gives free/top/ps — essential for diagnosing memory pressure / OOM freezes.

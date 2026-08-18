@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod container;
 mod image;
+mod overlay;
 
 use anyhow::Result;
 use clap::Parser;
