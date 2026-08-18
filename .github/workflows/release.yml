@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --all-features
+
+      - name: Build
+        run: cargo build --release --locked --target aarch64-apple-darwin
+
+      # Apple `container` is Apple Silicon / macOS 26 only, so that's the only target.
+      - name: Package
+        run: |
+          strip target/aarch64-apple-darwin/release/csb
+          tar -czf csb-aarch64-apple-darwin.tar.gz \
+            -C target/aarch64-apple-darwin/release csb
+          shasum -a 256 csb-aarch64-apple-darwin.tar.gz | tee checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            csb-aarch64-apple-darwin.tar.gz
+            checksums.txt
+          generate_release_notes: true
